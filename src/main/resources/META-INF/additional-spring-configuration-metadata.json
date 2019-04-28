@@ -1,0 +1,12 @@
+{"properties": [
+  {
+    "name": "endpoint.available-route.url",
+    "type": "java.lang.String",
+    "description": "service url that returns all the airports in IATA code.'"
+  },
+  {
+    "name": "endpoint.schedule-route.url",
+    "type": "java.lang.String",
+    "description": "service url that returns all the schedules of a route.'"
+  }
+]}
