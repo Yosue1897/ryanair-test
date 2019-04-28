@@ -5,16 +5,18 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ryanair.services.AvailableRouteService;
 import com.ryanair.services.FlightSearchService;
 import com.ryanair.services.ScheduleService;
@@ -30,7 +32,7 @@ public class FlightSearchServiceImpl implements FlightSearchService {
 	private AvailableRouteService availableRouteService;
 	private ScheduleService scheduleService;
 	List<Schedule> scheduleList = new ArrayList<>();
-	List<ResultFlight> listResult = new ArrayList<>();
+	
 	
 	@Autowired
 	public FlightSearchServiceImpl(AvailableRouteService availableRouteService, ScheduleService scheduleService) {
@@ -39,6 +41,7 @@ public class FlightSearchServiceImpl implements FlightSearchService {
 	}
 
 	@Override
+	@Cacheable(value = "result")
 	public List<ResultFlight> searchFlight(String departure, String arrival, 
 			LocalDateTime departureDateTime, LocalDateTime arrivalDateTime) throws JsonProcessingException {
 		
@@ -46,57 +49,48 @@ public class FlightSearchServiceImpl implements FlightSearchService {
 				.filter(item -> item.getDepartureAirport().equals(departure))
 				.collect(Collectors.toList());
 		
-		ObjectMapper objectMapper = new ObjectMapper();
-		String carAsString = objectMapper.writeValueAsString(routeList);
-		System.out.println(carAsString);
+		List<ResultFlight> listResult = new ArrayList<>();
+		routeList.parallelStream().forEach(item -> listResult.add(buildResultFlight(arrival, departureDateTime, arrivalDateTime, item)));
 		
-		routeList.forEach(item -> {
-			listResult.add(test(departure, arrival, departureDateTime, arrivalDateTime, item));
-		});
+		Route routeDirect = Route.builder()
+				.departureAirport(departure)
+				.departureDateTime(departureDateTime)
+				.arrivalAirport(arrival)
+				.arrivalDateTime(arrivalDateTime)
+				.build();
 		
-		return listResult;
+		listResult.addAll(directFlight(routeDirect));
+		
+		return listResult.parallelStream()
+				.filter(Objects::nonNull)
+				.sorted(Comparator.comparing(ResultFlight::getStops))
+				.collect(Collectors.toList());
 	}
 	
-	private void interconnectedFlights(Route route, String originalArrival, LocalDateTime departureDateTime) {
-		String airportAux = route.getArrivalAirport();
-		route.setDepartureAirport(airportAux);
-		route.setArrivalAirport(originalArrival);
-		Schedule interconnection = scheduleService.getSchedulesByDepartureAndArrival(route);
-		
-		removeDays(interconnection, departureDateTime);
-		
-System.out.println("ee");
-			
-	}
-	
-	private void removeDays(Schedule schedule, LocalDateTime departureDateTime) {
-		schedule.getDays().removeIf(x -> x.getDay() != departureDateTime.getDayOfMonth());
-	}
-	
-	private ResultFlight test(String departure, String arrival, 
+	private ResultFlight buildResultFlight(String arrival, 
 			LocalDateTime departureDateTime, LocalDateTime arrivalDateTime, Route route) {
 		
 		Boolean interconnected = Boolean.FALSE;
 		ResultFlight resultFlight = null;
-		Schedule rr = logica(scheduleService.getSchedulesByDepartureAndArrival(route), departureDateTime, interconnected);
+		Schedule sd = logic(scheduleService.getSchedulesByDepartureAndArrival(route), departureDateTime, arrivalDateTime, interconnected);
 		
 		Airport airportFrom = null;
 		Airport airportTo = null;
 		
-		if(rr != null) {
+		if(sd != null) {
 			LOGGER.info("There's flight from the airport {} to {}", route.getDepartureAirport(), route.getArrivalAirport());
 			airportFrom = Airport.Builder()
 					.departureAirport(route.getDepartureAirport())
 					.arrivalAirport(route.getArrivalAirport())
-					.departureDateTime(LocalDateTime.of(LocalDate.now(), rr.getDays().get(0).getFlights().get(0).getDepartureTime()))
-					.arrivalDateTime(LocalDateTime.of(LocalDate.now(), rr.getDays().get(0).getFlights().get(0).getArrivalTime()))
+					.departureDateTime(LocalDateTime.of(LocalDate.now(), sd.getDays().get(0).getFlights().get(0).getDepartureTime()))
+					.arrivalDateTime(LocalDateTime.of(LocalDate.now(), sd.getDays().get(0).getFlights().get(0).getArrivalTime()))
 					.build();
 			
 			String airportAux = route.getArrivalAirport();
 			route.setDepartureAirport(airportAux);
 			route.setArrivalAirport(arrival);
 			
-			Schedule aux = logica(scheduleService.getSchedulesByDepartureAndArrival(route), airportFrom.getArrivalDateTime(), Boolean.TRUE);
+			Schedule aux = logic(scheduleService.getSchedulesByDepartureAndArrival(route), airportFrom.getArrivalDateTime(), arrivalDateTime, Boolean.TRUE);
 			
 			if(aux != null) {
 				airportTo = Airport.Builder()
@@ -119,7 +113,7 @@ System.out.println("ee");
 		return resultFlight;
 	}
 	
-	private Schedule logica(Schedule schedule, LocalDateTime departureDateTime, Boolean interconnected) {
+	private Schedule logic(Schedule schedule, LocalDateTime departureDateTime, LocalDateTime arrivalDateTime, Boolean interconnected) {
 		
 		if (schedule != null) {
 			schedule.getDays().removeIf(day -> day.getDay() != departureDateTime.getDayOfMonth());
@@ -129,18 +123,53 @@ System.out.println("ee");
 				if(interconnected) {
 					schedule.getDays().get(0).getFlights().removeIf(time -> !time.getDepartureTime()
 							.isAfter(LocalTime.of(departureDateTime.getHour(), departureDateTime.getMinute()).plusHours(2L)));
+					
+					schedule.getDays().get(0).getFlights().removeIf(time -> !time.getArrivalTime()
+							.isBefore(LocalTime.of(arrivalDateTime.getHour(), arrivalDateTime.getMinute())));
+					
 				}else {
-					schedule.getDays().get(0).getFlights().removeIf(time -> !time.getDepartureTime()
-							.equals(LocalTime.of(departureDateTime.getHour(), departureDateTime.getMinute())));
+					schedule.getDays().get(0).getFlights().removeIf(time -> time.getDepartureTime()
+							.isBefore(LocalTime.of(departureDateTime.getHour(), departureDateTime.getMinute())));
 				}
 
 				if (!schedule.getDays().get(0).getFlights().isEmpty()) {
-					System.out.println(schedule.getDays().get(0).getFlights().size());
 					return schedule;
 				}
 			}
 		}
 		return null;
+	}
+	
+	private List<ResultFlight> directFlight(Route routeDirect) {
+		
+		List<ResultFlight> directFlight = new ArrayList<>();
+		Schedule scheDirect = scheduleService.getSchedulesByDepartureAndArrival(routeDirect);
+		
+		if(scheDirect != null) {
+			scheDirect.getDays().stream()
+				.filter(day -> day.getDay().equals(routeDirect.getDepartureDateTime().getDayOfMonth()))
+				.forEach(item -> {
+					item.getFlights().stream().filter(time -> 
+					time.getDepartureTime()
+					.equals(LocalTime.of(routeDirect.getDepartureDateTime().getHour(), routeDirect.getDepartureDateTime().getMinute()))
+					|| time.getDepartureTime().isAfter(LocalTime.of(routeDirect.getDepartureDateTime().getHour(), routeDirect.getDepartureDateTime().getMinute())))
+					.forEach(flight -> {
+						directFlight.add(
+						ResultFlight.builder()
+								.stops(0)
+								.legs(Arrays.asList(Airport.Builder()
+										.departureAirport(routeDirect.getDepartureAirport())
+										.departureDateTime(LocalDateTime.of(LocalDate.now(), flight.getDepartureTime()))
+										.arrivalAirport(routeDirect.getArrivalAirport())
+										.arrivalDateTime(LocalDateTime.of(LocalDate.now(), flight.getArrivalTime()))
+										.build()))
+								.build());
+					});
+				});
+			
+			return directFlight;
+		}
+		return new ArrayList<>();
 	}
 
 }

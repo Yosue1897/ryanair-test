@@ -38,7 +38,7 @@ public class ScheduleServiceImpl implements ScheduleService {
 	}
 	
 	@Override
-//	@Cacheable(value = "schedule")
+	@Cacheable(value = "schedule")
 	public Schedule getSchedulesByDepartureAndArrival(Route route) {
 
 		Map<String, String> uriParams = new HashMap<>();

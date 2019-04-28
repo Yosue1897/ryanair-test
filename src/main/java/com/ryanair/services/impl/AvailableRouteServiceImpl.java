@@ -28,13 +28,12 @@ public class AvailableRouteServiceImpl implements AvailableRouteService {
 	
 	@Autowired
 	public AvailableRouteServiceImpl(RestTemplateBuilder builder, FlightProperties flightProperties) {
-//		restTemplate = builder.interceptors(new RestTemplateInterceptor()).build();
 		restTemplate = builder.build();
 		this.flightProperties = flightProperties;
 	}
 
 	@Override
-//	@Cacheable(value = "routeIATA")
+	@Cacheable(value = "routeIATA")
 	public List<Route> getAvailableRoutesIATACodes(String departure, String arrival, LocalDateTime departureDateTime, LocalDateTime arrivalDateTime) {
 		
 		ResponseEntity<List<Route>> routes = restTemplate.exchange(flightProperties.getAvailableRoute().getUrl(), HttpMethod.GET, 
