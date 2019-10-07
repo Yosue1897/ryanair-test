@@ -44,7 +44,8 @@ public class FlightSearchServiceImpl implements FlightSearchService {
 	@Cacheable(value = "result")
 	public List<ResultFlight> searchFlight(String departure, String arrival, 
 			LocalDateTime departureDateTime, LocalDateTime arrivalDateTime) throws JsonProcessingException {
-		
+
+		LOGGER.info("TEST");
 		List<Route> routeList = availableRouteService.getAvailableRoutesIATACodes(departure, arrival, departureDateTime, arrivalDateTime).stream()
 				.filter(item -> item.getDepartureAirport().equals(departure))
 				.collect(Collectors.toList());
