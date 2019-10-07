@@ -18,7 +18,6 @@ import lombok.NoArgsConstructor;
 @JsonInclude(Include.NON_NULL)
 @JsonIgnoreProperties(ignoreUnknown=true)
 public class Days {
-	
 	private Integer day;
 	private List<Flight> flights;
 }
