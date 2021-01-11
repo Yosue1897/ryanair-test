@@ -11,6 +11,7 @@ public class FlightsApplicationTests {
 
 	@Test
 	public void contextLoads() {
+		//test missing.
 	}
 
 }
